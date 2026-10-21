@@ -1,0 +1,129 @@
+# 1.明确网站的抓取规则
+# 2.查看网页的结构,拆解具体的操作步骤，按步骤开发
+# 2.1获取高分电影列表数据
+# 2.2遍历电影列表，获取每一部电影的详细信息，并提取电影数据
+# 2.3将电影信息保存到csv文件中
+import requests
+import csv
+import random
+import re
+from lxml import html
+
+#定义常量
+MOVIE_LIST_FILE = "csv_data/movie_list.csv"
+TMDB_BASE_URL = "https://www.themoviedb.org/"
+TMDB_TOP_URL_1 = "https://www.themoviedb.org/movie/top-rated" #高分电影榜单的首页数据
+TMDB_TOP_URL_2 = "https://www.themoviedb.org/discover/movie/items"
+
+#添加请求头，避开TMDB网站反爬机制
+i = random.randint(1, 100)
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                         "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0",
+           "Accept-Language": f"zh-CN,zh;q={i}"}
+#保存电影数据，保存到csv文件中：
+def save_all_movies(all_movies):
+    with open(MOVIE_LIST_FILE, "w", encoding="utf-8", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=["电影名", "年份", "上映时间", "类型", "片长", "评分", "语言", "导演", "作者", "标语", "简介"])
+        writer.writeheader()    #写入表头
+        writer.writerows(all_movies) #写入数据
+#获取电影的年份，通过replace方法替换年份两边的的括号
+def get_movie_year(movie_years):
+    movie_year = movie_years[0].strip() if movie_years else ""
+    return movie_year.replace("(","").replace(")","")
+
+
+def get_movie_publish_date(movie_dates):
+    movie_dates = movie_dates[0].strip() if movie_dates else ""
+    res = re.search(r"\d{4}-\d{2}-\d{2}",movie_dates)
+    return res.group() if res else ""
+
+
+#获取电影时长(并统一转换为分钟)
+def get_movie_cost_time(movie_cost_times):
+    movie_cost_times = movie_cost_times[0].strip() if movie_cost_times else ""
+    # r原始字符串，增加()捕获数字分组
+    hours_result = re.search(r"(\d{1,2})h",movie_cost_times)
+    minutes_result = re.search(r"(\d{1,2})m",movie_cost_times)
+    h = hours_result.group(1) if hours_result else 0
+    m = minutes_result.group(1) if minutes_result else 0
+    movie_cost_times = int(h)*60 + int(m)
+    return movie_cost_times
+
+
+
+def get_movie_info(movie_info_url):
+    #1.发送请求，获取电影详情数据
+    movie_response = requests.get(movie_info_url,timeout=60,headers=headers)
+    print(f"发送请求{movie_info_url}，获取电影详情数据。。。")
+    #2.解析数据，获取电影详情数据
+    movie_doc = html.fromstring(movie_response.text)
+    #movie_name = movie_doc.xpath("//div[contains(@class, 'comp:poster-card')and contains(@class, 'dorder-light-grey')]/div/div[2]/div/a/h2/span/text()")
+    #movie_name = movie_doc.xpath("//div[contains(@class, 'comp:poster-card')]/div/div[2]/div/a/h2/span/text()")
+    #movie_name = movie_doc.xpath("/html/body/div[1]/main/section/div/div/div/div[2]/div[2]/div/section/div/div/div[1]/div/div[1]/div/div[2]/div/a/h2/span/text()")
+    #movie_names = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[1]/h2/a/text()")
+    movie_names = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[1]/h2/a/text()")   #电影 名
+    movie_years = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[1]/h2/span/text()") #年份
+    movie_dates = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[1]/div/span[@class='release']/text()")#上映时间
+    movie_tags = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[1]/div/span[@class='genres']/a/text()")#类型
+    movie_cost_times = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[1]/div/span[@class='runtime']/text()")#片时长
+    movie_scores = movie_doc.xpath("//*[@id='consensus_pill']/div/div[1]/div/div/@data-percent")#评分
+    movie_languages = movie_doc.xpath("//*[@id='media_v4']/div/div/div[2]/div/section/div[1]/div/section[1]/p[3]/text()")#语言
+    movie_directors = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[3]/ol/li[1]/p[1]/a/text()")# 导演
+    movie_authors = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[3]/ol/li[2]/p[1]/a/text()")# 作者
+    movie_slogans = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[3]/h3[1]/text()")# 标语
+    movies_descriptions = movie_doc.xpath("//*[@id='original_header']/div[2]/section/div[3]/div/p/text()")# 简介
+
+    #3.返回电影详情数据,将输出的信息添加到字典中并返回给函数 , strip() 去除字符串两边的空格,换行符等符号
+    #"," .join(movie_tags.strip ()) 使用join() 方法将列表中的多个元素连接成字符串
+    movie_info = {
+        "电影名": movie_names[0].strip() if movie_names else "",
+        "年份": get_movie_year(movie_years),
+        "上映时间": get_movie_publish_date(movie_dates),
+        "类型": ",".join(movie_tags) if movie_tags else "",
+        "片长": get_movie_cost_time(movie_cost_times),
+        "评分": movie_scores[0].strip() if movie_scores else "",
+        "语言": movie_languages[0].strip() if movie_languages else "",
+        "导演": ",".join(movie_directors) if movie_directors else "",
+        "作者": movie_authors[0].strip() if movie_authors else "",
+        "标语": movie_slogans[0].strip() if movie_slogans else "",
+        "简介": movies_descriptions[0].strip() if movies_descriptions else ""
+         }
+    print(movie_info)
+    return movie_info
+
+#主函数，定义核心
+def main():
+    all_movies = [] #保存所有的电影数据
+    # 循环获取电影列表从第一页到第五页
+    for page_num in range(1, 6):
+        # 1.发送请求，获取高分电影榜单数据
+        if page_num ==1:
+            response = requests.get(TMDB_TOP_URL_1, timeout=60, headers=headers)
+        else:
+            response = requests.post(TMDB_TOP_URL_2,
+                                     data=f"air_date.gte=&air_date.lte=&certification=&certification_country=CN&debug=&first_air_date.gte=&first_air_date.lte=&include_adult=false&include_softcore=false&latest_ceremony.gte=&latest_ceremony.lte=&page={page_num}&primary_release_date.gte=&primary_release_date.lte=&region=&release_date.gte=&release_date.lte=2026-11-20&show_me=everything&sort_by=vote_average.desc&vote_average.gte=0&vote_average.lte=10&vote_count.gte=300&watch_region=CN&with_genres=&with_keywords=&with_networks=&with_origin_country=&with_original_language=&with_watch_monetization_types=&with_watch_providers=&with_release_type=&with_runtime.gte=0&with_runtime.lte=400",
+                                     timeout=60, headers=headers)
+        print("发送请求，获取电影榜单数据成功。。。")
+
+        # 2.解析数据 ，获取电影列表
+        document = html.fromstring(response.text)
+        movie_list = document.xpath(f"//*[@id='page_{page_num}']/div/div/div")
+
+
+        # movie_list = document.xpath('//div[contains(@class, "media-list-results")]/div')
+        # 3.遍历电影列表，获取电影的详情
+        # 定义一个空列表，将电影详情保存到空列表中
+        for movie in movie_list:
+            movie_urls = movie.xpath("./div/div/a/@href")
+            if movie_urls:
+                # 单个电影详情URL
+                movie_info_url = TMDB_BASE_URL + movie_urls[0]
+                # print(movie_info_url)
+                # 发送请求，获取电影详情页数据,并储存在movie_info 中
+                movie_info = get_movie_info(movie_info_url)
+                all_movies.append(movie_info)
+    #4.保存数据，将all_movies中所有电影详情的数据保存到csv文件
+    save_all_movies(all_movies)
+    print("获取到所有电影详情，保存电影数据到csv文件。。。")
+if __name__ == '__main__':
+    main()

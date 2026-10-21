@@ -1,0 +1,290 @@
+"""
+Matplotlib案例02 - TOP300电影榜单数据统计可视化
+功能：统计并可视化电影数据的多个维度
+- 每年电影数量变化（折线图）
+- 不同语言电影数量（柱状图）
+- 不同类型电影数量（柱状图）
+- 不同评分电影占比（饼状图）
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+
+
+def load_and_clean_data(file_path: str) -> pd.DataFrame:
+    """
+    加载并清洗电影数据
+    
+    Args:
+        file_path: CSV文件路径
+        
+    Returns:
+        清洗后的DataFrame
+    """
+    # 读取数据，指定数据类型（Int64支持空值）
+    data = pd.read_csv(
+        file_path,
+        usecols=['电影名', '年份', '上映时间', '类型', '时长', '评分', '语言'],
+        dtype={'年份': 'Int64'}
+    )
+    
+    # 处理年份缺失值：用上映时间的前4个字符填充
+    data["年份"] = data["年份"].fillna(data["上映时间"].str[0:4])
+    
+    return data
+
+
+def calculate_yearly_movie_count(data: pd.DataFrame) -> tuple:
+    """
+    计算每年上映的电影数量
+    
+    Args:
+        data: 清洗后的电影数据
+        
+    Returns:
+        (x轴年份列表, y轴数量列表)
+    """
+    # 按年份分组统计
+    year_count = data.groupby('年份')["年份"].count()
+    
+    # 获取最小和最大年份
+    min_year = year_count.index.min()
+    max_year = year_count.index.max()
+    
+    # X轴：补全所有年份（包括没有数据的年份）
+    x = [i for i in range(min_year, max_year + 1)]
+    
+    # Y轴：获取对应年份的电影数量，缺失的年份填充为0
+    y = [int(year_count.get(i, 0)) for i in x]
+    
+    return x, y
+
+
+def calculate_language_distribution(data: pd.DataFrame) -> tuple:
+    """
+    计算不同语言的电影数量分布
+    
+    Args:
+        data: 清洗后的电影数据
+        
+    Returns:
+        (语言列表, 对应数量列表)，按数量降序排列
+    """
+    # 按语言分组统计，降序排列
+    language_count = data.groupby('语言')["语言"].count().sort_values(ascending=False)
+    
+    # 提取X轴和Y轴数据
+    x_language = language_count.index.tolist()
+    y_language_count = language_count.values.tolist()
+    
+    return x_language, y_language_count
+
+
+def calculate_genre_distribution(data: pd.DataFrame) -> dict:
+    """
+    计算不同类型电影的数量分布
+    
+    Args:
+        data: 清洗后的电影数据
+        
+    Returns:
+        字典 {电影类型: 数量}
+    """
+    type_count = {}
+    
+    # 遍历每一行的电影类型（可能包含多个类型，用逗号分隔）
+    for types in data["类型"].str.split(","):
+        for genre in types:
+            if genre in type_count:
+                type_count[genre] += 1
+            else:
+                type_count[genre] = 1
+    
+    return type_count
+
+
+def calculate_score_distribution(data: pd.DataFrame, threshold: float = 0.06) -> tuple:
+    """
+    计算不同评分的电影分布，合并小比例数据
+    
+    Args:
+        data: 清洗后的电影数据
+        threshold: 合并阈值（默认6%，小于此比例的评分归为"其他"）
+        
+    Returns:
+        (评分列表, 对应数量列表)
+    """
+    # 按评分分组统计
+    score_count = data.groupby("评分")["评分"].count()
+    
+    # 计算总数
+    total = score_count.sum()
+    
+    # 分离大数据和小数据
+    small_score = score_count.loc[score_count < total * threshold]
+    large_score = score_count.loc[score_count >= total * threshold]
+    
+    # 如果有小数据，合并到"其他"类别
+    if small_score.shape[0] > 0:
+        large_score["其他"] = small_score.sum()
+    
+    # 提取X轴和Y轴数据
+    scores = large_score.index.tolist()
+    score_values = large_score.values.tolist()
+    
+    return scores, score_values
+
+
+def plot_yearly_trend(ax: Axes, x: list, y: list) -> None:
+    """
+    绘制每年电影数量变化的折线图
+    
+    Args:
+        ax: Matplotlib Axes对象
+        x: 年份列表
+        y: 电影数量列表
+    """
+    ax.plot(x, y, color='green', linewidth=2)
+    ax.set_title('每年电影数量变化', fontsize=18, color='orange')
+    ax.set_xlabel('年份', fontsize=12)
+    ax.set_ylabel('电影数量', fontsize=12)
+    
+    # 设置刻度
+    ax.set_xticks(x[::8])  # 每隔8个年份显示一个刻度
+    y_ticks = [i for i in range(0, 31, 3)]
+    ax.set_yticks(y_ticks)
+    
+    # 添加网格线
+    ax.grid(linestyle="--", alpha=0.5)
+
+
+def plot_language_distribution(ax: Axes, languages: list, counts: list) -> None:
+    """
+    绘制不同语言电影数量的柱状图
+    
+    Args:
+        ax: Matplotlib Axes对象
+        languages: 语言列表
+        counts: 对应数量列表
+    """
+    ax.bar(languages, counts, color='green', width=0.6)
+    ax.set_title('不同语言电影数量', fontsize=18, color='orange')
+    ax.set_xlabel('语言', fontsize=12)
+    ax.set_ylabel('电影数量', fontsize=12)
+    ax.grid(linestyle="--", alpha=0.5)
+    
+    # 旋转X轴标签
+    ax.tick_params(axis='x', rotation=45)
+
+
+def plot_genre_distribution(ax: Axes, genre_dict: dict) -> None:
+    """
+    绘制不同类型电影数量的柱状图
+    
+    Args:
+        ax: Matplotlib Axes对象
+        genre_dict: 电影类型字典 {类型: 数量}
+    """
+    x_type = list(genre_dict.keys())
+    y_type_count = list(genre_dict.values())
+    
+    ax.bar(x_type, y_type_count, color='green', width=0.6)
+    ax.set_title('不同类型电影数量', fontsize=18, color='orange')
+    ax.set_xlabel('电影类型', fontsize=12)
+    ax.set_ylabel('电影数量', fontsize=12)
+    ax.grid(linestyle="--", alpha=0.5)
+
+
+def plot_score_distribution(ax: Axes, scores: list, values: list) -> None:
+    """
+    绘制不同评分电影占比的饼状图
+    
+    Args:
+        ax: Matplotlib Axes对象
+        scores: 评分列表
+        values: 对应数量列表
+    """
+    # 设置配色方案
+    colors_list = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    
+    # 移除shadow参数，避免阴影造成的重影效果
+    wedges, texts, autotexts = ax.pie(
+        values, 
+        autopct="%1.1f%%", 
+        radius=1.0,
+        colors=colors_list[:len(values)]
+    )
+    ax.set_title('不同评分电影占比', fontsize=18, color='orange')
+    
+    # 设置百分比文字样式，使其更清晰
+    for autotext in autotexts:
+        autotext.set_color('white')
+        #autotext.set_fontweight('bold')
+        autotext.set_fontsize(10)
+    
+    # 添加图例
+    ax.legend(wedges, scores, loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.15))
+
+
+def create_visualization(output_path: str = './resources/电影数据可视化.png') -> None:
+    """
+    创建完整的电影数据可视化图表
+    
+    Args:
+        output_path: 图片保存路径
+    """
+    # 设置中文字体
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    
+    # 创建画布和子图
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(20, 12), dpi=500)
+    
+    # 设置标题
+    plt.suptitle('TOP300电影榜单数据统计', fontsize=20, color='orange', x=0.5, y=0.95)
+    
+    # 调整布局
+    plt.tight_layout()
+    fig.subplots_adjust(left=0.1, right=0.9, top=0.85, bottom=0.1, hspace=0.4, wspace=0.2)
+    
+    # 获取四个子图
+    axes1: Axes = axes[0, 0]
+    axes2: Axes = axes[0, 1]
+    axes3: Axes = axes[1, 0]
+    axes4: Axes = axes[1, 1]
+    
+    # 加载和清洗数据
+    print("正在加载数据...")
+    data = load_and_clean_data('./resources/movies.csv')
+    
+    # 需求1：每年电影数量变化
+    print("正在计算每年电影数量...")
+    x_year, y_year = calculate_yearly_movie_count(data)
+    plot_yearly_trend(axes1, x_year, y_year)
+    
+    # 需求2：不同语言电影数量
+    print("正在计算语言分布...")
+    x_lang, y_lang = calculate_language_distribution(data)
+    plot_language_distribution(axes2, x_lang, y_lang)
+    
+    # 需求3：不同类型电影数量
+    print("正在计算类型分布...")
+    genre_dict = calculate_genre_distribution(data)
+    plot_genre_distribution(axes3, genre_dict)
+    
+    # 需求4：不同评分电影占比
+    print("正在计算评分分布...")
+    scores, score_values = calculate_score_distribution(data)
+    plot_score_distribution(axes4, scores, score_values)
+    
+    # 保存图片
+    plt.savefig(output_path, dpi=300)
+    print(f"图片已保存到: {output_path}")
+    
+    # 显示图表
+    plt.show()
+
+
+if __name__ == '__main__':
+    create_visualization()
